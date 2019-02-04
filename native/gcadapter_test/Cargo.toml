@@ -1,0 +1,8 @@
+[package]
+name = "gcadapter_test"
+version = "0.1.0"
+authors = ["jos <jd325@njit.edu>"]
+edition = "2018"
+
+[dependencies]
+libloading = "0.5"
