@@ -1,39 +1,16 @@
-mod ffi;
+use std::thread;
+use std::cell::RefCell;
 
 use libusb;
 
-const vendor_id: u16 = 0x057E;
-const device_id: u16 = 0x0337;
+mod context;
+mod adapter;
+mod controller;
 
-struct Context {
-    libusb_context: libusb::Context,
-    adapters: Vec<Adapter>
-}
+mod ffi;
 
-impl Context {
-    fn new() -> Result<Context, libusb::Error> {
-        let libusb_context = libusb::Context::new()?;
+/// Vendor ID for the GameCube adapter.
+pub const vendor_id: u16 = 0x057E;
 
-        Ok(Context {
-            libusb_context,
-            adapters: vec!()
-        })
-    }
-
-    fn update_adapters(&mut self) {
-    }
-}
-
-struct Adapter {
-    controllers: Vec<Controller>
-}
-
-struct Controller {
-    plugged_in: bool,
-
-    buttons: u32,
-    x: f32,
-    y: f32,
-    cx: f32,
-    cy: f32
-}
+/// Device ID for the GameCube adapter.
+pub const device_id: u16 = 0x0337;
