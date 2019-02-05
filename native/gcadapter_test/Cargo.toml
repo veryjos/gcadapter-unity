@@ -5,4 +5,6 @@ authors = ["jos <jd325@njit.edu>"]
 edition = "2018"
 
 [dependencies]
+clap = "2.32.0"
+
 libloading = "0.5"
