@@ -10,8 +10,20 @@ fn main() {
     // Load the project library
     let lib = Library::new(config.dll_path).unwrap();
 
-    let list_devices: Symbol<unsafe extern fn() -> ()> = unsafe {
-        lib.get(b"list_devices\0").unwrap()
+    // Load symbols from the dll and do a bit of test stuff
+    macro_rules! load_symbols {
+        ($($symbol_name:ident : $ty:ty),*) => {
+            $(
+                let $symbol_name: $ty = unsafe {
+                    lib.get(stringify!($symbol_name).as_bytes())
+                        .unwrap()
+                };
+            )*
+        };
+    };
+
+    load_symbols! {
+        list_devices: Symbol<unsafe extern fn() -> ()>
     };
 
     unsafe {
