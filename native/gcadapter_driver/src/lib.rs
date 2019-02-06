@@ -13,7 +13,7 @@ mod adapter;
 mod ffi;
 
 /// Vendor ID for the GameCube adapter.
-pub const vendor_id: u16 = 0x057E;
+pub const VENDOR_ID: u16 = 0x057E;
 
-/// Device ID for the GameCube adapter.
-pub const device_id: u16 = 0x0337;
+/// Product ID for the GameCube adapter.
+pub const PRODUCT_ID: u16 = 0x0337;
