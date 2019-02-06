@@ -21,15 +21,15 @@ impl<T: Copy> SyncCell<T> {
         }
     }
 
-    pub fn create_reader(&mut self) -> SyncCellReader<T> {
+    pub fn create_reader(&self) -> SyncCellReader<T> {
         SyncCellReader {
-            control_block: unsafe { transmute_copy(&mut self.control_block) }
+            control_block: unsafe { transmute_copy(&self.control_block) }
         }
     }
 
-    pub fn create_writer(&mut self) -> SyncCellWriter<T> {
+    pub fn create_writer(&self) -> SyncCellWriter<T> {
         SyncCellWriter {
-            control_block: unsafe { transmute_copy(&mut self.control_block) }
+            control_block: unsafe { transmute_copy(&self.control_block) }
         }
     }
 }
