@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicPtr;
 /// Size of the buffer used for the underlying circular buffer.
 const BUFFER_SIZE: usize = 16;
 
-/// A cell which is syncronized across threads.
+/// An unsafe, lockless cell which is syncronized across threads.
 ///
 /// When a reader requests the data held by this cell, the most recently
 /// written data will be given to the reader.
