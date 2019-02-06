@@ -1,11 +1,14 @@
+#![feature(maybe_uninit)]
+
 use std::thread;
 use std::cell::RefCell;
 
 use libusb;
 
+mod sync_cell;
+
 mod context;
 mod adapter;
-mod controller;
 
 mod ffi;
 
