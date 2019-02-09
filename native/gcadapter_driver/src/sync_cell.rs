@@ -4,7 +4,7 @@ use std::marker::Send;
 use std::sync::atomic::AtomicPtr;
 
 /// Size of the buffer used for the underlying circular buffer.
-const BUFFER_SIZE: usize = 16;
+const BUFFER_SIZE: usize = 128;
 
 /// An unsafe, lockless cell which is syncronized across threads.
 ///
