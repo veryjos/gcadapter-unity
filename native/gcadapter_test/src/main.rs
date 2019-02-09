@@ -23,10 +23,12 @@ fn main() {
     };
 
     load_symbols! {
-        list_devices: Symbol<unsafe extern fn() -> ()>
+        gc_create_context: Symbol<unsafe extern fn() -> usize>
     };
 
     unsafe {
-        list_devices();
+       gc_create_context();
     }
+
+    std::thread::sleep(std::time::Duration::from_millis(10000));
 }

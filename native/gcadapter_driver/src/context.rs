@@ -15,7 +15,7 @@ pub struct Context {
 
 fn hotplug_thread(libusb_context: libusb::Context) {
     loop {
-        // TODO: Support hotplug
+        // TODO: Support true hotplug
         // Poll for adapters
         let all_adapters: Vec<_> = match libusb_context.devices() {
             Ok(device_list) => {
