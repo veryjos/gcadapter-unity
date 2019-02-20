@@ -47,7 +47,7 @@ struct ControlBlock<T: Copy> {
 impl<T: Copy> ControlBlock<T> {
     fn new() -> ControlBlock<T> {
         let mut buffer: [T; BUFFER_SIZE] = unsafe {
-            [MaybeUninit::uninitialized().into_inner(); BUFFER_SIZE]
+            [MaybeUninit::uninitialized().into_initialized(); BUFFER_SIZE]
         };
 
         ControlBlock {
