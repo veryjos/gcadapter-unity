@@ -12,43 +12,55 @@ use crate::adapter::Adapter;
 pub struct Context {
     join_handle: thread::JoinHandle<()>,
 
-    adapter_receiver: Receiver<Adapter>,
+    adapter_receiver: Receiver<(u8, Option<Adapter>)>,
     adapters: Vec<Adapter>
 }
 
-fn hotplug_thread(sender: Sender<Adapter>, libusb_context: libusb::Context) {
+fn hotplug_thread(sender: Sender<(u8, Option<Adapter>)>, libusb_context: libusb::Context) {
     let mut plugged_in = HashSet::new();
 
     loop {
-        // TODO: Support true hotplug
-        // Poll for adapters
+        // TODO: Support true OS hotplug
         match libusb_context.devices() {
             Ok(device_list) => {
-                device_list.iter()
-                    .filter(|device| {
-                        !plugged_in.contains(device.address())
-                    })
-                    .filter(|device| {
-                        match device.device_descriptor() {
-                            Ok(desc) => {
-                                desc.vendor_id()  == VENDOR_ID &&
-                                desc.product_id() == PRODUCT_ID
-                            },
+                // Send off plug and events
+                for device in device_list.iter() {
+                    let desc = device.device_descriptor().unwrap();
 
-                            _ => false
-                        }
-                    })
-                    .for_each(|device| {
-                        // Ship these new devices off to the context for proper handling
+                    // Check if it's the right device type
+                    if desc.vendor_id()  != VENDOR_ID ||
+                       desc.product_id() != PRODUCT_ID {
+                        continue;
+                    }
+
+                    if !plugged_in.contains(&device.address()) {
+                        // New device, send it off to the context
                         println!("New device plugged in: {:?}", device.address());
                         plugged_in.insert(device.address());
 
-                        sender.send(Adapter::new());
+                        sender.send((device.address(), Some(Adapter::new())));
                     }
+                }
+
+                // Send off unplug events
+                plugged_in.retain(|address| {
+                    match device_list.iter()
+                        .find(|device| {
+                            device.address() == *address
+                        }) {
+                            None => {
+                                println!("Device unplugged from: {:?}", address);
+                                sender.send((*address, None));
+
+                                false
+                            },
+                            _ => true
+                        }
+                });
             },
 
             Err(_) => panic!("Failed to list USB devices")
-        };
+        }
 
         thread::sleep(std::time::Duration::from_millis(2500));
     }
