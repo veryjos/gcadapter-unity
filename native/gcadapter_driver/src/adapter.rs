@@ -17,15 +17,15 @@ pub struct ControllerState {
     cy: f32
 }
 
-pub struct Adapter<'a> {
+pub struct Adapter {
     thread_handle: thread::JoinHandle<()>,
-    pub device: libusb::Device<'a>,
+    // pub device: libusb::DeviceHandle<'a>,
 
     pub controllers: SyncCell<[ControllerState; 4]>
 }
 
-impl<'a> Adapter<'a> {
-    pub fn new(device: libusb::Device<'a>) -> Adapter {
+impl Adapter {
+    pub fn new() -> Adapter {
         let controllers = SyncCell::new();
 
         let thread_handle = {
@@ -41,7 +41,6 @@ impl<'a> Adapter<'a> {
 
         Adapter {
             thread_handle,
-            device,
 
             controllers
         }
