@@ -10,7 +10,7 @@ use crate::{VENDOR_ID, PRODUCT_ID};
 
 use crate::adapter::Adapter;
 
-/// Context for the GameCube adapter daemon
+/// Context for the GameCube adapter.
 pub struct Context {
     // Must be a box because must be pinned for an unsafe static reference
     libusb_context: Box<libusb::Context>,
@@ -89,8 +89,11 @@ impl Context {
         })
     }
 
-    // Updates each adapter
-    pub fn tick(&mut self) {
+    /// Updates the adapter and any associated controllers.
+    ///
+    /// This doesn't have to be called once per frame, this just consumes
+    /// messages generated from the worker thread.
+    pub fn update(&mut self) {
         // Handle each adapter added/removed event
         while let Ok(event) = self.adapter_receiver.try_recv() {
             match event {

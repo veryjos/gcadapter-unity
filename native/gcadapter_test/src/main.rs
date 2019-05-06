@@ -23,12 +23,20 @@ fn main() {
     };
 
     load_symbols! {
-        gc_create_context: Symbol<unsafe extern fn() -> usize>
+        gc_create_context: Symbol<unsafe extern fn() -> usize>,
+        gc_delete_context: Symbol<unsafe extern fn(usize)>,
+        gc_tick_context:   Symbol<unsafe extern fn(usize)>
     };
 
-    unsafe {
-       gc_create_context();
+    let context = unsafe { gc_create_context() };
+
+    // Gather each adapter and controller inputs
+    loop {
+        unsafe { gc_tick_context(context); };
+        std::thread::sleep(std::time::Duration::from_millis(16));
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(10000));
+    std::thread::sleep(std::time::Duration::from_millis(50000));
+
+    unsafe { gc_delete_context(context) };
 }
