@@ -1,7 +1,14 @@
 use std::mem;
 use std::ptr;
+use std::sync::Arc;
+use std::ffi::c_void;
 
+use crate::adapter::ControllerState;
 use crate::context::Context;
+
+
+pub struct ControllerPtr(());
+pub type ControllerHandle = *mut ControllerPtr;
 
 /// Creates a new [`Context`] and returns a pointer to the object.
 ///
@@ -11,8 +18,24 @@ use crate::context::Context;
 /// The pointer is owned by the caller and must be freed with
 /// [`gc_delete_context`].
 #[no_mangle]
-extern "C" fn gc_context_create() -> *mut Context {
-    match Context::new() {
+extern "C" fn gc_context_create(
+    controller_plug_callback: extern "C" fn(i32, i32) -> ControllerHandle,
+    controller_unplug_callback: extern "C" fn(ControllerHandle) -> (),
+    controller_state_callback: extern "C" fn(ControllerHandle, *const ControllerState) -> ()
+) -> *mut Context {
+    match Context::new(
+        Arc::new(|adapter_id, port| {
+            println!("controller plugged in");
+        }),
+
+        Arc::new(|controller_handle| {
+            println!("controller unplugged");
+        }),
+
+        Arc::new(|controller_handle| {
+            println!("controller state updated");
+        })
+    ) {
         Ok(context) => {
             Box::leak(Box::new(context))
         },
@@ -42,20 +65,6 @@ extern "C" fn gc_context_delete(ptr: *mut Context) {
 #[no_mangle]
 extern "C" fn gc_context_update(ptr: &mut Context) {
     ptr.update();
-}
-
-#[no_mangle]
-extern "C" fn gc_context_set_controller_callbacks(
-    ptr: &mut Context,
-    controller_plug_callback: extern "C" fn(i32) -> (),
-    controller_unplug_callback: extern "C" fn(i32) -> (),
-    controller_state_callback: extern "C" fn(i32) -> ()
-) {
-    unsafe {
-        controller_plug_callback(1);
-        controller_unplug_callback(1);
-        controller_state_callback(1);
-    }
 }
 
 #[no_mangle]

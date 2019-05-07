@@ -92,6 +92,8 @@ pub struct SyncCellReader<T: Copy> {
     control_block: *mut ControlBlock<T>
 }
 
+unsafe impl<T: Copy> Send for SyncCellReader<T> {}
+
 impl<T: Copy> SyncCellReader<T> {
     pub fn read(&self) -> T {
         unsafe {

@@ -8,7 +8,14 @@ use libusb;
 
 use crate::{VENDOR_ID, PRODUCT_ID};
 
+use crate::ffi::ControllerHandle;
 use crate::adapter::Adapter;
+
+/// Events sent back to the context
+pub enum AdapterEvent {
+    Plug(u8, Adapter),
+    Unplug(u8)
+}
 
 /// Context for the GameCube adapter.
 pub struct Context {
@@ -16,11 +23,18 @@ pub struct Context {
     libusb_context: Box<libusb::Context>,
     hotplug_thread_handle: thread::JoinHandle<()>,
 
-    adapter_receiver: Receiver<(u8,Option<Adapter>)>,
-    adapters: Vec<Adapter>,
+    adapter_receiver: Receiver<AdapterEvent>,
+    adapters: Vec<Adapter>
 }
 
-fn hotplug_thread(sender: Sender<(u8, Option<Adapter>)>, libusb_context: &'static libusb::Context) {
+fn hotplug_thread(
+    controller_plug_callback: Arc<fn(i32, i32) -> ()>,
+    controller_unplug_callback: Arc<fn(i32) -> ()>,
+    controller_state_callback: Arc<fn(i32) -> ()>,
+
+    sender: Sender<AdapterEvent>,
+    libusb_context: &'static libusb::Context
+) {
     let mut plugged_in = HashSet::new();
 
     loop {
@@ -43,8 +57,15 @@ fn hotplug_thread(sender: Sender<(u8, Option<Adapter>)>, libusb_context: &'stati
                 println!("New device plugged in: {:?}", address);
                 plugged_in.insert(address);
 
-                let adapter = Adapter::new(device);
-                sender.send((address, Some(adapter)));
+                let adapter = Adapter::new(
+                    controller_plug_callback.clone(),
+                    controller_unplug_callback.clone(),
+                    controller_state_callback.clone(),
+
+                    device
+                );
+
+                sender.send(AdapterEvent::Plug(address, adapter));
             }
         }
 
@@ -56,7 +77,7 @@ fn hotplug_thread(sender: Sender<(u8, Option<Adapter>)>, libusb_context: &'stati
                 }) {
                     None => {
                         println!("Device unplugged from: {:?}", address);
-                        sender.send((*address, None));
+                        sender.send(AdapterEvent::Unplug(*address));
 
                         false
                     },
@@ -70,14 +91,25 @@ fn hotplug_thread(sender: Sender<(u8, Option<Adapter>)>, libusb_context: &'stati
 
 impl Context {
     /// Creates a new Context and starts an input thread.
-    pub fn new() -> Result<Context, libusb::Error> {
+    pub fn new(
+        controller_plug_callback: Arc<fn(i32, i32) -> ()>,
+        controller_unplug_callback: Arc<fn(i32) -> ()>,
+        controller_state_callback: Arc<fn(i32) -> ()>
+    ) -> Result<Context, libusb::Error> {
         let libusb_context = Box::new(libusb::Context::new()
             .expect("Failed to open libusb context"));
 
         let (sender, adapter_receiver) = channel();
         let libusb_context_ref = unsafe { transmute_copy(&libusb_context) };
         let hotplug_thread_handle = thread::spawn(move || {
-            hotplug_thread(sender, libusb_context_ref);
+            hotplug_thread(
+                controller_plug_callback.clone(),
+                controller_unplug_callback.clone(),
+                controller_state_callback.clone(),
+
+                sender,
+                libusb_context_ref
+            );
         });
 
         Ok(Context {
@@ -97,12 +129,12 @@ impl Context {
         // Handle each adapter added/removed event
         while let Ok(event) = self.adapter_receiver.try_recv() {
             match event {
-                (address, Some(adapter)) => unsafe {
+                AdapterEvent::Plug(address, adapter) => unsafe {
                     println!("Got adapter at address {}", address);
                     self.adapters.push(adapter);
                 },
 
-                (address, None) => {
+                AdapterEvent::Unplug(address) => {
                     println!("Adapter from address {}", address);
                     self.adapters.retain(|adapter| {
                         adapter.address() != address
