@@ -46,7 +46,6 @@ impl Adapter {
         let controllers = SyncCell::new();
 
         let thread_handle = {
-            let controller_plug_callback = controller_plug_callback.clone();
             let writer = controllers.create_writer();
             let address = device.address();
 
@@ -55,8 +54,6 @@ impl Adapter {
                 // TODO: Actually poll the values out of libusb
                 let data = [ControllerState::default(); 4];
                 writer.write(data);
-
-                controller_plug_callback(address.into(), 44);
             })
         };
 
