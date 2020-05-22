@@ -6,10 +6,10 @@ pub struct Config {
 
 impl Config {
     pub fn from_cli() -> Config {
-        let matches = App::new("gcadapter-unity test")
+        let matches = App::new("gcadapter-example")
             .version("1.0")
             .author("Joseph Delgado <downsider002@gmail.com>")
-            .about("Tests gcadapter-unity dll")
+            .about("Example for using gcadapter-unity dll")
 
             .arg(Arg::with_name("path")
                 .short("p")

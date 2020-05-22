@@ -1,5 +1,5 @@
 [package]
-name = "gcadapter_test"
+name = "gcadapter_example"
 version = "0.1.0"
 authors = ["jos <jd325@njit.edu>"]
 edition = "2018"
