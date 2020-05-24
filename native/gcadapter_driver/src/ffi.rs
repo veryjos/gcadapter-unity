@@ -1,18 +1,29 @@
 use std::mem;
 
+use crate::controller::{ControllerId, ControllerState};
 use crate::context::Context;
 
+pub type ControllerPluggedCallback = fn(id: ControllerId);
+pub type ControllerUnpluggedCallback = fn(id: ControllerId);
+
 #[no_mangle]
-extern "C" fn gc_create_context() -> usize {
-    match Context::new() {
-        Ok(context) => {
-            unsafe { mem::transmute(Box::leak(Box::new(context))) }
-        },
+extern "C" fn gc_create_context(
+    controller_plugged: ControllerPluggedCallback,
+    controller_unplugged: ControllerUnpluggedCallback
+) -> usize {
+    let context: Context = Context::new(controller_plugged, controller_unplugged);
 
-        Err(err) => {
-            println!("Error creating libusb context: {}", err);
-
-            0
-        }
+    unsafe {
+        mem::transmute(Box::leak(Box::new(context)))
     }
+}
+
+#[no_mangle]
+extern "C" fn gc_latest_controller_state(
+    context: *const Context,
+    id: ControllerId,
+) -> *const ControllerState {
+    let context = unsafe { &*context };
+
+    std::ptr::null()
 }

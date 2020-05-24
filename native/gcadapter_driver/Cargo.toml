@@ -1,11 +1,12 @@
 [package]
 name = "gcadapter_driver"
 version = "0.1.0"
-authors = ["jos <jd325@njit.edu>"]
+authors = ["jos <jdelgado002@gmail.com>"]
 edition = "2018"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-libusb = "0.3.0"
+arrayvec = "0.5.1"
+rusb = "0.5"

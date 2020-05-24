@@ -3,6 +3,8 @@ use libloading::{ Library, Symbol };
 mod config;
 use config::Config;
 
+type ControllerId = usize;
+
 fn main() {
     // Parse CLI into program config
     let config = Config::from_cli();
@@ -23,12 +25,20 @@ fn main() {
     };
 
     load_symbols! {
-        gc_create_context: Symbol<unsafe extern fn() -> usize>
+        gc_create_context: Symbol<unsafe extern fn(fn(id: ControllerId), fn(id: ControllerId)) -> usize>
+    };
+
+    let controller_plugged = |id: ControllerId| {
+        println!("Controller plugged in: {}", id);
+    };
+
+    let controller_unplugged = |id: ControllerId| {
+        println!("Controller unplugged: {}", id);
     };
 
     unsafe {
-       gc_create_context();
+       gc_create_context(controller_plugged, controller_unplugged);
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(10000));
+    std::thread::sleep(std::time::Duration::from_millis(30000));
 }

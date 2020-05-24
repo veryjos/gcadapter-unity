@@ -1,111 +1,223 @@
-use std::thread;
-use std::mem::{transmute_copy};
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{Sender, Receiver, channel};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
+use std::time::Duration;
+use std::sync::{Arc, Mutex, mpsc};
 
-use libusb;
+use crate::controller::{ControllerState, ControllerId};
+use crate::ffi::{ControllerPluggedCallback, ControllerUnpluggedCallback};
+use crate::sync_cell::{SyncCell, SyncCellWriter};
 
-use crate::{VENDOR_ID, PRODUCT_ID};
+pub const VENDOR_ID: u16 = 0x057E;
+pub const PRODUCT_ID: u16 = 0x0337;
 
-use crate::adapter::Adapter;
-
-/// Context for the GameCube adapter daemon
-pub struct Context {
-    // Must be a box because must be pinned for an unsafe static reference
-    libusb_context: Box<libusb::Context>,
-    hotplug_thread_handle: thread::JoinHandle<()>,
-
-    adapter_receiver: Receiver<(u8,Option<Adapter>)>,
-    adapters: Vec<Adapter>,
+enum AdapterEvent {
+    Added(rusb::Device<rusb::GlobalContext>),
+    Removed(u8),
 }
 
-fn hotplug_thread(sender: Sender<(u8, Option<Adapter>)>, libusb_context: &'static libusb::Context) {
-    let mut plugged_in = HashSet::new();
+/// Represents the state of a Context.
+struct ContextState {
+    controllers: HashMap<ControllerId, SyncCell<ControllerState>>,
+}
 
-    loop {
-        // TODO: Support true OS hotplug
-        let devices = libusb_context.devices().expect("Failed to list USB devices");
-
-        // Send off plug and events
-        for device in devices.iter() {
-            let desc = device.device_descriptor().unwrap();
-
-            // Check if it's the right device type
-            if desc.vendor_id()  != VENDOR_ID ||
-               desc.product_id() != PRODUCT_ID {
-                continue;
-            }
-
-            if !plugged_in.contains(&device.address()) {
-                // New device, send it off to the context
-                let address = device.address();
-                println!("New device plugged in: {:?}", address);
-                plugged_in.insert(address);
-
-                let adapter = Adapter::new(device);
-                sender.send((address, Some(adapter)));
-            }
-        }
-
-        // Send off unplug events
-        plugged_in.retain(|address| {
-            match devices.iter()
-                .find(|device| {
-                    device.address() == *address
-                }) {
-                    None => {
-                        println!("Device unplugged from: {:?}", address);
-                        sender.send((*address, None));
-
-                        false
-                    },
-                    _ => true
-            }
-        });
-
-        thread::sleep(std::time::Duration::from_millis(2500));
-    }
+/// A `Context` holds on to global resources for users of `gcadapter-unity`. Every integration with
+/// `gcadapter-unity` should create a `Context` before performing any other work.
+///
+/// You should only have one instance of this in your program.
+pub struct Context {
+    context_state: Arc<Mutex<ContextState>>,
+    _write_thread_handle: std::thread::JoinHandle<()>,
+    _hotplug_thread_handle: std::thread::JoinHandle<()>,
+    _usb_context: rusb::Context,
 }
 
 impl Context {
-    /// Creates a new Context and starts an input thread.
-    pub fn new() -> Result<Context, libusb::Error> {
-        let libusb_context = Box::new(libusb::Context::new()
-            .expect("Failed to open libusb context"));
+    pub fn new(
+        plugged_callback: ControllerPluggedCallback,
+        unplugged_callback: ControllerUnpluggedCallback
+    ) -> Context {
+        let usb_context = rusb::Context::new()
+            .expect("Failed to initialize libusb");
 
-        let (sender, adapter_receiver) = channel();
-        let libusb_context_ref = unsafe { transmute_copy(&libusb_context) };
-        let hotplug_thread_handle = thread::spawn(move || {
-            hotplug_thread(sender, libusb_context_ref);
-        });
+        let mut context_state = Arc::new(Mutex::new(ContextState {
+            controllers: HashMap::new(),
+        }));
 
-        Ok(Context {
-            libusb_context,
-            hotplug_thread_handle,
+        let (writer, reader) = mpsc::channel();
 
-            adapter_receiver,
-            adapters: vec!()
-        })
-    }
+        // Spawn write thread, responsible for pushing updates for controller input.
+        let write_thread_handle = {
+            let context_state = context_state.clone();
 
-    // Updates each adapter
-    pub fn tick(&mut self) {
-        // Handle each adapter added/removed event
-        while let Ok(event) = self.adapter_receiver.try_recv() {
-            match event {
-                (address, Some(adapter)) => unsafe {
-                    println!("Got adapter at address {}", address);
-                    self.adapters.push(adapter);
-                },
+            std::thread::spawn(move || {
+                let mut adapters: HashMap<u8, rusb::DeviceHandle<rusb::GlobalContext>> = HashMap::new();
+                let mut writers: HashMap<ControllerId, /*SyncCellWriter<ControllerState>*/ bool> = HashMap::new();
+                let mut payload = [0u8; 37];
 
-                (address, None) => {
-                    println!("Adapter from address {}", address);
-                    self.adapters.retain(|adapter| {
-                        adapter.address() != address
-                    })
+                loop {
+                    // Handle adapter added or removed events.
+                    while let Ok(event) = reader.try_recv() {
+                        match event {
+                            AdapterEvent::Added(device) => {
+                                let mut device_handle = device.open()
+                                    .expect("Failed to open GameCube adapter.");
+
+                                device_handle.claim_interface(0x00)
+                                    .expect("Failed to claim writable interface for GameCube adapter.");
+
+                                device_handle.write_interrupt(0x2, &[0x13], Duration::new(1, 0))
+                                    .expect("Failed to initialize GameCube adapter.");
+
+                                adapters.insert(device.address(), device_handle);
+                            },
+
+                            AdapterEvent::Removed(address) => {
+                                adapters.remove(&address);
+                            },
+                        }
+                    }
+
+                    // Read controller input from each adapter.
+                    for (base_idx, device_handle) in adapters.values_mut().enumerate() {
+                        device_handle.read_interrupt(0x81, &mut payload, Duration::new(1, 0))
+                            .expect("Failed to read from GameCube adapter.");
+
+                        for i in 0..4 {
+                            let controller_id = (base_idx + i) as ControllerId;
+                            let ofs = 1 + i * 9;
+                            let data: &[u8; 9] = payload[ofs..ofs + 9].try_into().unwrap();
+
+                            if ControllerState::is_plugged(data) {
+                                if !writers.contains_key(&controller_id) {
+                                    writers.insert(controller_id, true);
+                                    println!("Controller {} plugged in.", controller_id);
+                                }
+                            } else {
+                                if writers.contains_key(&controller_id) {
+                                    writers.remove(&controller_id);
+                                    println!("Controller {} unplugged in.", controller_id);
+                                }
+                            }
+
+                            /*
+                            let writer_idx = base_idx * 4 + i;
+                            writers[writer_idx].write(|state: &mut ControllerState| {
+                                if old_state.plugged_in && !state.plugged_in {
+                                    plugged_callback(i);
+                                } else if !old_state.plugged_in && state.plugged_in {
+                                    unplugged_callback(i);
+                                }
+
+                                state.read_slice(payload[ofs..ofs + 9]
+                                    .try_into().unwrap());
+                            });
+                            */
+                        }
+                    }
                 }
-            }
-        }
+
+                // Request data from each device.
+                /*
+
+                // Read from device and write values out to SyncCellWriter.
+                let mut payload = [0u8; 37];
+                loop {
+                    device_handle.read_interrupt(0x81, &mut payload, Duration::new(1, 0))
+                        .expect("Failed to read from GameCube adapter");
+
+                }
+                */
+            })
+        };
+
+        // Spawn hotplug thread (Windows doesn't support hotplug, so we have to do this).
+        let hotplug_thread_handle = {
+            let context_state = context_state.clone();
+
+            std::thread::spawn(move || {
+                let mut opened = HashSet::new();
+
+                loop {
+                    // Poll device list every second.
+                    std::thread::sleep(Duration::new(1, 0));
+
+                    let devices = rusb::DeviceList::new()
+                        .expect("Failed to enumerate USB devices");
+
+                    let adapters: Vec<rusb::Device<rusb::GlobalContext>> = devices.iter()
+                        .filter(|device| {
+                            match device.device_descriptor() {
+                                Ok(descriptor) =>
+                                    descriptor.product_id() == PRODUCT_ID && descriptor.vendor_id() == VENDOR_ID,
+
+                                Err(_) => false,
+                            }
+                        }).collect();
+
+                    // Remove old adapters.
+                    let old_adapters: Vec<u8> = opened.iter()
+                        .filter(|address| adapters.iter()
+                            .find(|device| device.address() == **address)
+                            .is_none())
+                        .cloned().into_iter().collect();
+
+                    for address in old_adapters {
+                        opened.remove(&address);
+                        println!("closed {}", address);
+
+                        writer.send(AdapterEvent::Removed(address)).unwrap();
+                    }
+
+                    // Add new adapters.
+                    for device in adapters {
+                        if opened.contains(&device.address()) {
+                            continue
+                        }
+
+                        opened.insert(device.address());
+                        println!("opened {}", device.address());
+
+                        writer.send(AdapterEvent::Added(device)).unwrap();
+                    }
+                }
+            })
+        };
+
+        let context = Context {
+            context_state,
+            _write_thread_handle: write_thread_handle,
+            _hotplug_thread_handle: hotplug_thread_handle,
+            _usb_context: usb_context,
+        };
+
+        context
     }
 }
+
+
+/*
+        let controllers = [
+            SyncCell::new(ControllerState::default()),
+            SyncCell::new(ControllerState::default()),
+            SyncCell::new(ControllerState::default()),
+            SyncCell::new(ControllerState::default()),
+        ];
+
+        let writers: ArrayVec<[SyncCellWriter<ControllerState>; 4]> = controllers.iter()
+            .map(|sync_cell| sync_cell.create_writer())
+            .collect();
+
+        let adapter = match writers.into_inner() {
+            Ok(writers) => Adapter::new(
+                device,
+                writers,
+                self.plugged_callback,
+                self.unplugged_callback
+            ),
+            Err(_) => panic!("smallvec exceeded size of fixed-size array"),
+        };
+
+        unsafe {
+            self.context_state.as_mut().adapters.push(adapter);
+        }
+        */

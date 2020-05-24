@@ -21,10 +21,8 @@ impl<T: Copy> SyncCell<T> {
         }
     }
 
-    pub fn create_reader(&self) -> SyncCellReader<T> {
-        SyncCellReader {
-            control_block: unsafe { transmute_copy(&self.control_block) }
-        }
+    pub fn read(&mut self) -> T {
+        unsafe { self.control_block.read() }
     }
 
     pub fn create_writer(&self) -> SyncCellWriter<T> {
@@ -47,7 +45,7 @@ struct ControlBlock<T: Copy> {
 impl<T: Copy> ControlBlock<T> {
     fn new() -> ControlBlock<T> {
         let mut buffer: [T; BUFFER_SIZE] = unsafe {
-            [MaybeUninit::uninitialized().into_initialized(); BUFFER_SIZE]
+            [MaybeUninit::uninit().assume_init(); BUFFER_SIZE]
         };
 
         ControlBlock {
@@ -83,19 +81,6 @@ impl<T: Copy> SyncCellWriter<T> {
     pub fn write(&self, data: T) {
         unsafe {
             (&mut *self.control_block).update(data)
-        }
-    }
-}
-
-/// Reads from a SyncCell.
-pub struct SyncCellReader<T: Copy> {
-    control_block: *mut ControlBlock<T>
-}
-
-impl<T: Copy> SyncCellReader<T> {
-    pub fn read(&self) -> T {
-        unsafe {
-            (&mut *self.control_block).read()
         }
     }
 }
