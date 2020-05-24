@@ -1,27 +1,27 @@
 use std::mem::{MaybeUninit, transmute_copy};
 
 use std::marker::Send;
-use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 /// Size of the buffer used for the underlying circular buffer.
-const BUFFER_SIZE: usize = 128;
+const BUFFER_SIZE: usize = 32;
 
 /// An unsafe, lockless cell which is syncronized across threads.
 ///
 /// When a reader requests the data held by this cell, the most recently
 /// written data will be given to the reader.
-pub struct SyncCell<T: Copy> {
+pub struct SyncCell<T: Default> {
     control_block: Box<ControlBlock<T>>
 }
 
-impl<T: Copy> SyncCell<T> {
+impl<T: Default> SyncCell<T> {
     pub fn new() -> SyncCell<T> {
         SyncCell {
             control_block: Box::new(ControlBlock::new())
         }
     }
 
-    pub fn read(&mut self) -> T {
+    pub fn read(&self) -> &T {
         unsafe { self.control_block.read() }
     }
 
@@ -35,24 +35,20 @@ impl<T: Copy> SyncCell<T> {
 
 /// Control block for a SyncCell. Stored in the heap and used for
 /// resource reclamation.
-struct ControlBlock<T: Copy> {
+struct ControlBlock<T: Default> {
     current: usize,
 
     last_update: AtomicPtr<T>,
     buffer: [T; BUFFER_SIZE]
 }
 
-impl<T: Copy> ControlBlock<T> {
+impl<T: Default> ControlBlock<T> {
     fn new() -> ControlBlock<T> {
-        let mut buffer: [T; BUFFER_SIZE] = unsafe {
-            [MaybeUninit::uninit().assume_init(); BUFFER_SIZE]
-        };
-
         ControlBlock {
             current: 0,
 
-            last_update: buffer.as_mut_ptr().into(),
-            buffer
+            last_update: AtomicPtr::new(std::ptr::null_mut::<T>()),
+            buffer: Default::default(),
         }
     }
 
@@ -65,19 +61,21 @@ impl<T: Copy> ControlBlock<T> {
         }
     }
 
-    pub fn read(&mut self) -> T {
-        unsafe { **self.last_update.get_mut() }
+    pub fn read(&self) -> &T {
+        unsafe {
+            &*self.last_update.load(Ordering::Relaxed)
+        }
     }
 }
 
 /// Writes into a SyncCell.
-pub struct SyncCellWriter<T: Copy> {
+pub struct SyncCellWriter<T: Default> {
     control_block: *mut ControlBlock<T>
 }
 
-unsafe impl<T: Copy> Send for SyncCellWriter<T> {}
+unsafe impl<T: Default> Send for SyncCellWriter<T> {}
 
-impl<T: Copy> SyncCellWriter<T> {
+impl<T: Default> SyncCellWriter<T> {
     pub fn write(&self, data: T) {
         unsafe {
             (&mut *self.control_block).update(data)

@@ -1,9 +1,28 @@
-use libloading::{ Library, Symbol };
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+
+use lazy_static::lazy_static;
+use libloading::{Library, Symbol};
 
 mod config;
 use config::Config;
 
+lazy_static! {
+    static ref PLUGGED_IN: Arc<Mutex<HashSet<usize>>> = Arc::new(Mutex::new(HashSet::new()));
+}
+
 type ControllerId = usize;
+
+#[derive(Debug)]
+struct ControllerState {
+    plugged_in: bool,
+
+    buttons: u32,
+    x: f32,
+    y: f32,
+    cx: f32,
+    cy: f32,
+}
 
 fn main() {
     // Parse CLI into program config
@@ -25,20 +44,35 @@ fn main() {
     };
 
     load_symbols! {
-        gc_create_context: Symbol<unsafe extern fn(fn(id: ControllerId), fn(id: ControllerId)) -> usize>
+        gc_create_context: Symbol<unsafe extern fn(fn(id: ControllerId), fn(id: ControllerId)) -> usize>,
+        gc_latest_controller_state: Symbol<unsafe extern fn(usize, usize) -> *const ControllerState>
     };
 
     let controller_plugged = |id: ControllerId| {
+        PLUGGED_IN.lock().unwrap().insert(id);
         println!("Controller plugged in: {}", id);
     };
 
     let controller_unplugged = |id: ControllerId| {
+        PLUGGED_IN.lock().unwrap().remove(&id);
         println!("Controller unplugged: {}", id);
     };
 
-    unsafe {
-       gc_create_context(controller_plugged, controller_unplugged);
-    }
+    let context = unsafe {
+       gc_create_context(controller_plugged, controller_unplugged)
+    };
 
-    std::thread::sleep(std::time::Duration::from_millis(30000));
+    for i in 0..3000 {
+        for controller_id in PLUGGED_IN.lock().unwrap().iter() {
+            let controller_state = unsafe {
+                gc_latest_controller_state(context, *controller_id)
+            };
+
+            unsafe {
+                println!("{:?}", *controller_state);
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+    }
 }

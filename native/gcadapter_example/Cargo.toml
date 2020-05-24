@@ -7,4 +7,5 @@ edition = "2018"
 [dependencies]
 clap = "2.32.0"
 
+lazy_static = "1.4.0"
 libloading = "0.5"

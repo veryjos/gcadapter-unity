@@ -25,5 +25,5 @@ extern "C" fn gc_latest_controller_state(
 ) -> *const ControllerState {
     let context = unsafe { &*context };
 
-    std::ptr::null()
+    context.get_latest_controller_state(id)
 }
