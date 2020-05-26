@@ -13,6 +13,7 @@ lazy_static! {
 
 type ControllerId = usize;
 
+#[repr(C)]
 #[derive(Debug)]
 struct ControllerState {
     plugged_in: bool,
@@ -22,6 +23,8 @@ struct ControllerState {
     y: f32,
     cx: f32,
     cy: f32,
+    l: f32,
+    r: f32,
 }
 
 fn main() {
@@ -44,8 +47,8 @@ fn main() {
     };
 
     load_symbols! {
-        gc_create_context: Symbol<unsafe extern fn(fn(id: ControllerId), fn(id: ControllerId)) -> usize>,
-        gc_latest_controller_state: Symbol<unsafe extern fn(usize, usize) -> *const ControllerState>
+        gc_create_context: Symbol<unsafe extern fn(fn(id: ControllerId), fn(id: ControllerId)) -> *const ()>,
+        gc_get_latest_controller_state: Symbol<unsafe extern fn(context: *const (), id: ControllerId) -> ControllerState>
     };
 
     let controller_plugged = |id: ControllerId| {
@@ -58,19 +61,14 @@ fn main() {
         println!("Controller unplugged: {}", id);
     };
 
-    let context = unsafe {
-       gc_create_context(controller_plugged, controller_unplugged)
-    };
+    let context = unsafe { gc_create_context(controller_plugged, controller_unplugged) };
 
-    for i in 0..3000 {
+    loop {
         for controller_id in PLUGGED_IN.lock().unwrap().iter() {
-            let controller_state = unsafe {
-                gc_latest_controller_state(context, *controller_id)
-            };
+            let controller_state =
+                unsafe { gc_get_latest_controller_state(context, *controller_id) };
 
-            unsafe {
-                println!("{:?}", *controller_state);
-            }
+            println!("{:?}", controller_state);
         }
 
         std::thread::sleep(std::time::Duration::from_millis(1000));

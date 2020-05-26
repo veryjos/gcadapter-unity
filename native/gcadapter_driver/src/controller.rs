@@ -2,7 +2,8 @@
 pub type ControllerId = usize;
 
 /// The instantaneous state of a GameCube controller.
-#[derive(Default, Clone, Copy)]
+#[repr(C)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct ControllerState {
     plugged_in: bool,
 
@@ -10,7 +11,9 @@ pub struct ControllerState {
     x: f32,
     y: f32,
     cx: f32,
-    cy: f32
+    cy: f32,
+    l: f32,
+    r: f32,
 }
 
 impl ControllerState {
@@ -23,7 +26,9 @@ impl ControllerState {
         self.buttons = (data[1] as u32) | ((data[2] as u32) << 0x08);
         self.x = data[3] as f32;
         self.y = data[4] as f32;
-        self.cx = data[3] as f32;
-        self.cy = data[4] as f32;
+        self.cx = data[5] as f32;
+        self.cy = data[6] as f32;
+        self.l = data[7] as f32;
+        self.r = data[8] as f32;
     }
 }

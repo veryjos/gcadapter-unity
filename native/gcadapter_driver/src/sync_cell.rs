@@ -1,4 +1,4 @@
-use std::mem::{MaybeUninit, transmute_copy};
+use std::mem::{transmute_copy};
 
 use std::marker::Send;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -22,7 +22,7 @@ impl<T: Default> SyncCell<T> {
     }
 
     pub fn read(&self) -> &T {
-        unsafe { self.control_block.read() }
+        self.control_block.read()
     }
 
     pub fn create_writer(&self) -> SyncCellWriter<T> {

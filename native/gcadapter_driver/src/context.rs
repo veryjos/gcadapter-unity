@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::time::Duration;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc;
 
 use crate::controller::{ControllerState, ControllerId};
 use crate::ffi::{ControllerPluggedCallback, ControllerUnpluggedCallback};
-use crate::sync_cell::{SyncCell, SyncCellWriter};
+use crate::sync_cell::SyncCell;
 
 pub const VENDOR_ID: u16 = 0x057E;
 pub const PRODUCT_ID: u16 = 0x0337;
@@ -57,7 +57,7 @@ struct Adapter {
 }
 
 impl Adapter {
-    pub fn read(&self, payload: &mut [u8])  {
+    pub fn read(&self, payload: &mut [u8]) {
         match self.device_handle.read_interrupt(0x81, payload, Duration::new(1, 0)) {
             _ => (),
         }
@@ -85,7 +85,7 @@ impl Context {
         plugged_callback: ControllerPluggedCallback,
         unplugged_callback: ControllerUnpluggedCallback
     ) -> Context {
-        let mut context_state = SyncCell::new();
+        let context_state = SyncCell::new();
         let usb_context = rusb::Context::new()
             .expect("Failed to initialize libusb");
 
@@ -128,7 +128,10 @@ impl Context {
 
                                     let ofs = adapter.controller_slot * 4;
                                     for i in ofs..ofs + 4 {
-                                        controllers.remove(&i);
+                                        if controllers.contains(&i) {
+                                            controllers.remove(&i);
+                                            unplugged_callback(i);
+                                        }
                                     }
                                 }
 
@@ -143,7 +146,6 @@ impl Context {
                     };
 
                     for adapter in adapters.values_mut() {
-                        let device_handle = &mut adapter.device_handle;
                         adapter.read(&mut payload);
 
                         for i in 0..4 {
@@ -151,22 +153,23 @@ impl Context {
                             let ofs = 1 + i * 9;
                             let data: &[u8; 9] = payload[ofs..ofs + 9].try_into().unwrap();
 
+                            let mut controller_state = ControllerState::default();
+
                             if ControllerState::is_plugged(data) {
                                 if !controllers.contains(&controller_id) {
                                     controllers.insert(controller_id);
                                     plugged_callback(controller_id);
                                 }
 
-                                let mut controller_state = ControllerState::default();
                                 controller_state.read_slice(data);
-
-                                new_state.controller_data.push(controller_state);
                             } else {
                                 if controllers.contains(&controller_id) {
                                     controllers.remove(&controller_id);
                                     unplugged_callback(controller_id);
                                 }
                             }
+
+                            new_state.controller_data.push(controller_state);
                         }
                     }
 
@@ -206,8 +209,6 @@ impl Context {
 
                     for address in old_adapters {
                         opened.remove(&address);
-                        println!("closed {}", address);
-
                         writer.send(AdapterEvent::Removed(address)).unwrap();
                     }
 
@@ -218,8 +219,6 @@ impl Context {
                         }
 
                         opened.insert(device.address());
-                        println!("opened {}", device.address());
-
                         writer.send(AdapterEvent::Added(device)).unwrap();
                     }
                 }
@@ -236,9 +235,9 @@ impl Context {
         context
     }
 
-    pub fn get_latest_controller_state(&self, controller_id: ControllerId) -> &ControllerState {
+    pub fn get_latest_controller_state(&self, controller_id: ControllerId) -> ControllerState {
         let context_state = self.context_state.read();
 
-        &context_state.controller_data[controller_id]
+        context_state.controller_data[controller_id]
     }
 }

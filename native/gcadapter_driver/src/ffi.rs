@@ -19,10 +19,17 @@ extern "C" fn gc_create_context(
 }
 
 #[no_mangle]
-extern "C" fn gc_latest_controller_state(
-    context: *const Context,
+extern "C" fn gc_destroy_context(
+    context: *mut Context,
+) {
+    drop(context);
+}
+
+#[no_mangle]
+extern "C" fn gc_get_latest_controller_state(
+    context: *mut Context,
     id: ControllerId,
-) -> *const ControllerState {
+) -> ControllerState {
     let context = unsafe { &*context };
 
     context.get_latest_controller_state(id)
